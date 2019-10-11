@@ -36,6 +36,8 @@
 
 #define BACKLOG  5          // Allowed length of queue of waiting connections
 #define serverID "V_GROUP_16"
+#define serverPort argv[1]
+#define serverIP "130.208.243.61"
 
 // Simple class for handling connections from clients.
 //
@@ -145,9 +147,7 @@ int connectServer(std::string ip_address, std::string port, fd_set *openSockets,
 
     bzero((char *) &serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr,
-        (char *)&serv_addr.sin_addr.s_addr,
-        server->h_length);
+    bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
     serv_addr.sin_port = htons(atoi(port.c_str()));
 
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -172,14 +172,6 @@ int connectServer(std::string ip_address, std::string port, fd_set *openSockets,
     *maxfds = std::max(*maxfds, serverSocket);
 
     std::cout << "Connected to " << server->h_name << std::endl;
-
-    /*
-    strcpy(message, "LISTSERVERS,V_GROUP_16");
-    std::string str = addTokens(message);
-    strcpy(message, str.c_str());
-
-    send(serverSocket, message, strlen(message), 0);
-    */
 
     clients.insert(std::pair<int, Client*>(serverSocket, new Client(serverSocket, ip_address)));
     clients[serverSocket]->port = port;
@@ -239,18 +231,24 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         }  
     }
     else if(tokens[0].compare("LISTSERVERS") == 0) {
-        if(!clients[clientSocket]->is_group_16) {
+
+        if(tokens.size() == 2) {
             clients[clientSocket]->name = tokens[1];
-            
-                std::string message = "SERVERS,";
-                for(auto const& pair : clients) {
-                    Client *client = pair.second;
-                    if(!client->is_group_16) {
-                        message += client->name + "," + client->ip_address + "," + client->port + ";";
-                    }
+        
+            std::string message = "SERVERS,";
+            for(auto const& pair : clients) {
+                Client *client = pair.second;
+                message += serverID + "," + serverIP + "," + serverPort + ";";
+                if(!client->is_group_16) {
+                    message += client->name + "," + client->ip_address + "," + client->port + ";";
                 }
-                send(clientSocket, message.c_str(), message.length(), 0);
+            }
+            send(clientSocket, message.c_str(), message.length(), 0);
         }
+        else if(tokens.size() == 1) {
+            // svar til okkar client
+        }
+        
     }
     else if(tokens[0].compare("LEAVE") == 0) {
         // Close the socket, and leave the socket handling
