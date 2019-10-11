@@ -35,9 +35,8 @@
 #endif
 
 #define BACKLOG  5          // Allowed length of queue of waiting connections
-#define serverID "V_GROUP_16"
-#define serverPort argv[1]
-#define serverIP "130.208.243.61"
+std::string serverID = "P3_GROUP_16";
+std::string serverIP = "130.208.243.61";
 
 // Simple class for handling connections from clients.
 //
@@ -205,7 +204,7 @@ bool isFull() {
 }
 
 // Process command from client on the server
-void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buffer) {
+void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buffer, std::string serverPort) {
 
     std::string str = removeTokens(buffer);
     strcpy(buffer, str.c_str());
@@ -214,10 +213,18 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
 
     // Split command from client into tokens for parsing
     std::istringstream ss(buffer);
-    
+
     while(getline(ss, token, ',')) {
         tokens.push_back(token);
     }
+    if(tokens.size() == 1) {
+        std::stringstream stream(buffer);
+        while(stream >> token) {
+            tokens.erase(tokens.begin());
+            tokens.push_back(token);
+        }
+    }
+
     if((tokens[0].compare("CONNECT") == 0) && (tokens.size() == 3)) {
         if(!isFull()) {
             std::string ip_address = tokens[1];
@@ -231,23 +238,34 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         }  
     }
     else if(tokens[0].compare("LISTSERVERS") == 0) {
-
+        
+        strcpy(buffer, "SERVERS,");
         if(tokens.size() == 2) {
             clients[clientSocket]->name = tokens[1];
-        
-            std::string message = "SERVERS,";
-            for(auto const& pair : clients) {
-                Client *client = pair.second;
-                message += serverID + "," + serverIP + "," + serverPort + ";";
-                if(!client->is_group_16) {
-                    message += client->name + "," + client->ip_address + "," + client->port + ";";
-                }
+            strcat(buffer, serverID.c_str());
+            strcat(buffer, ",");
+            strcat(buffer, serverIP.c_str());
+            strcat(buffer, ",");
+            strcat(buffer, serverPort.c_str());
+            strcat(buffer, ";");
+        }
+
+        for(auto const& pair : clients) {
+            Client *client = pair.second;
+            if(!client->is_group_16) {
+                strcat(buffer, client->name.c_str());
+                strcat(buffer, ",");
+                strcat(buffer, client->ip_address.c_str());
+                strcat(buffer, ",");
+                strcat(buffer, client->port.c_str());
+                strcat(buffer, ";");
             }
-            send(clientSocket, message.c_str(), message.length(), 0);
         }
-        else if(tokens.size() == 1) {
-            // svar til okkar client
-        }
+        std::string str = addTokens(buffer);
+        strcpy(buffer, str.c_str());
+        send(clientSocket, buffer, strlen(buffer), 0);
+    }
+    else if(tokens[0].compare("SERVERS") == 0) {
         
     }
     else if(tokens[0].compare("LEAVE") == 0) {
@@ -312,6 +330,7 @@ int main(int argc, char* argv[]) {
     struct sockaddr_in client;
     socklen_t clientLen;
     char buffer[1025];              // buffer for reading from clients
+    std::string serverPort = argv[1];
 
     if(argc != 2) {
         printf("Usage: chat_server <ip port>\n");
@@ -362,9 +381,11 @@ int main(int argc, char* argv[]) {
 
                 // create a new client to store information.
                 clients[clientSock] = new Client(clientSock, inet_ntoa(client.sin_addr));
+                clients[clientSock]->port = -1;
+                clients[clientSock]->name = "";
                 
                 // if is_group_16
-                strcpy(buffer, "LISTSERVERS,V_GROUP_16");
+                strcpy(buffer, "LISTSERVERS,P3_GROUP_16");
                 std::string str = addTokens(buffer);
                 strcpy(buffer, str.c_str());
 
@@ -394,7 +415,7 @@ int main(int argc, char* argv[]) {
                         // only triggers if there is something on the socket for us.
                         else {
                             std::cout << buffer << std::endl;
-                            clientCommand(client->sock, &openSockets, &maxfds, buffer);
+                            clientCommand(client->sock, &openSockets, &maxfds, buffer, serverPort);
                         }
                     }
                 }
