@@ -267,6 +267,21 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
     }
     else if(tokens[0].compare("SERVERS") == 0) {
         
+        std::istringstream ss(buffer);
+        std::vector<std::string> groups;
+        std::vector<std::string> grouptokens;
+
+        while(getline(ss, token, ';')) {
+            groups.push_back(token);
+        }
+        std::istringstream stream(groups[0]);
+        while(getline(stream, token, ',')) {
+            grouptokens.push_back(token);
+        }
+
+        clients[clientSocket]->name = grouptokens[1];
+        clients[clientSocket]->ip_address = grouptokens[2];
+        clients[clientSocket]->port = grouptokens[3];
     }
     else if(tokens[0].compare("LEAVE") == 0) {
         // Close the socket, and leave the socket handling
@@ -295,7 +310,6 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         for(auto i = tokens.begin()+2;i != tokens.end();i++) {
             msg += *i + " ";
         }
-
         for(auto const& pair : clients) {
             send(pair.second->sock, msg.c_str(), msg.length(),0);
         }
