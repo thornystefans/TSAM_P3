@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <map>
 #include <vector>
+#include <time.h>
 
 #include <iostream>
 #include <sstream>
@@ -48,17 +49,36 @@ class Client {
     std::string ip_address;     // Ip address of that client
     std::string port;           // Port og that client
     bool is_group_16;
+    time_t last_keepalive_time;
 
     Client(int sock, std::string ip_address) {
         this->sock = sock;
         this->ip_address = ip_address;
         is_group_16 = false;
+        last_keepalive_time = time(&last_keepalive_time);
     }
 
     ~Client(){}            // Virtual destructor defined for base class
 };
 
+class Message {
+    public:
+    std::string group;           // Used in get_msg as the group ID. 
+    std::string from_group = "";   // If 
+    std::string message;         // The message 
+
+    Message(std::string group, std::string from_group, std::string message){
+        this->group = group;
+        this->from_group = from_group;
+        this->message = message;
+    }
+
+    ~Message(){}
+};
+
 std::map<int, Client*> clients; // Lookup table for per Client information
+
+std::vector<Message*> msg; //Lookup table for messages
 
 // Open socket for specified port.
 //
@@ -179,6 +199,9 @@ int connectServer(std::string ip_address, std::string port, fd_set *openSockets,
 // Close a client's connection, remove it from the client list, and
 // tidy up select sockets afterwards.
 void closeClient(int clientSocket, fd_set *openSockets, int *maxfds) {
+    
+    std::cout << "Dropping server " << clients[clientSocket]->name << std::endl;
+    
     // Remove client from the clients list
     clients.erase(clientSocket);
 
@@ -263,6 +286,7 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         }
         std::string str = addTokens(buffer);
         strcpy(buffer, str.c_str());
+        std::cout << "Sending: " << buffer << std::endl;
         send(clientSocket, buffer, strlen(buffer), 0);
     }
     else if(tokens[0].compare("SERVERS") == 0) {
@@ -283,7 +307,12 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         clients[clientSocket]->ip_address = grouptokens[2];
         clients[clientSocket]->port = grouptokens[3];
     }
-    else if(tokens[0].compare("LEAVE") == 0) {
+    else if(tokens[0].compare("KEEPALIVE") == 0) {
+        time_t t;
+        time(&t);
+        clients[clientSocket]->last_keepalive_time = t;
+    }
+    else if(tokens[0].compare("LEAVE") == 0 && tokens.size() == 3) {
         // Close the socket, and leave the socket handling
         // code to deal with tidying up clients etc. when
         // select() detects the OS has torn down the connection.
@@ -325,6 +354,53 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
             }
         }
     }
+    else if(tokens[0].compare("GET_MSG") == 0){
+        //VECTOR[<FROM_GROUP_ID>,<TO_GROUP_ID>,<MESSAGE>]
+
+        if(clients[clientSocket]->is_group_16){
+
+            std::string str = addTokens(buffer);
+            strcpy(buffer, str.c_str());
+            send(clientSocket, buffer, strlen(buffer), 0);
+
+        }
+        else{
+            for(int i = 0; i < msg.size(); i++){
+                if(msg[i]->group == tokens[1]){
+                    
+                    std::string temp = msg[i]->message;
+                    strcpy(buffer, temp.c_str());
+
+                    std::string str = addTokens(buffer);
+                    strcpy(buffer, str.c_str());
+
+                    send(clientSocket, buffer, strlen(buffer), 0);
+
+                }
+            }
+        }
+    }
+    else if(tokens[0].compare("SEND_MSG") == 0){
+
+        if(clients[clientSocket]->is_group_16){
+
+            std::cout << "send" << std::endl;
+
+            std::string str = addTokens(buffer);
+            strcpy(buffer, str.c_str());
+            send(clientSocket, buffer, strlen(buffer), 0);
+
+        }
+        else if(tokens.size() == 4){
+
+            std::cout << "recv" << std::endl;
+
+            Message* currentMsg = new Message(tokens[1], tokens[2], tokens[3]);
+            msg.push_back(currentMsg); 
+
+        }
+
+    }
     else if(tokens[0].compare("Group16_hello_from_the_other_side") == 0) {
         clients[clientSocket]->is_group_16 = true;
     }
@@ -345,6 +421,7 @@ int main(int argc, char* argv[]) {
     socklen_t clientLen;
     char buffer[1025];              // buffer for reading from clients
     std::string serverPort = argv[1];
+    struct timeval tv;
 
     if(argc != 2) {
         printf("Usage: chat_server <ip port>\n");
@@ -370,12 +447,45 @@ int main(int argc, char* argv[]) {
     finished = false;
 
     while(!finished) {
+
+        time_t t;
+        time(&t);
+        for(auto const& pair : clients) {
+            Client* client = pair.second;
+
+            if(!client->is_group_16 && (t - client->last_keepalive_time) > 120) {
+                std::cout << client->name << " has not sent KEEPALIVE for 2 minutes. Dropping server." << std::endl;
+                closeClient(client->sock, &openSockets, &maxfds);
+            }
+            if(client->is_group_16) {
+                if((t - client->last_keepalive_time) > 60) {
+                    for(auto const& c : clients) {
+                        Client* cli = c.second;
+                        if(!cli->is_group_16) {
+                            strcpy(buffer, "KEEPALIVE,0");
+                            std::string str = addTokens(buffer);
+                            strcpy(buffer, str.c_str());
+                            send(cli->sock, buffer, strlen(buffer), 0);
+                            time_t update_keepalive_time;
+                            time(&t);
+                            client->last_keepalive_time = t;
+                            std::cout << "KEEPALIVE sent" << std::endl;
+                        }
+                    }
+                }
+            }
+        }
+
         // Get modifiable copy of readSockets
         readSockets = exceptSockets = openSockets;
         memset(buffer, 0, sizeof(buffer));
 
+        tv.tv_sec = 5;
+        tv.tv_usec = 0;
+
+
         // Look at sockets and see which ones have something to be read()
-        int n = select(maxfds + 1, &readSockets, NULL, &exceptSockets, NULL);
+        int n = select(maxfds + 1, &readSockets, NULL, &exceptSockets, &tv);
 
         if(n < 0) {
             perror("select failed - closing down\n");
@@ -397,8 +507,7 @@ int main(int argc, char* argv[]) {
                 clients[clientSock] = new Client(clientSock, inet_ntoa(client.sin_addr));
                 clients[clientSock]->port = -1;
                 clients[clientSock]->name = "";
-                
-                // if is_group_16
+
                 strcpy(buffer, "LISTSERVERS,P3_GROUP_16");
                 std::string str = addTokens(buffer);
                 strcpy(buffer, str.c_str());
@@ -412,7 +521,6 @@ int main(int argc, char* argv[]) {
             }
             // Now check for commands from clients
             while(n-- > 0) {
-                // memset?????
                 
                 for(auto const& pair : clients) {
                     Client *client = pair.second;
@@ -437,5 +545,3 @@ int main(int argc, char* argv[]) {
         }
     }
 }
-
-
