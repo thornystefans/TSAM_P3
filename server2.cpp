@@ -17,7 +17,6 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <string.h>
-#include <string>
 #include <algorithm>
 #include <map>
 #include <vector>
@@ -37,7 +36,7 @@
 #endif
 
 #define BACKLOG  5          // Allowed length of queue of waiting connections
-std::string serverID = "P3_GROUP_16";
+std::string serverID = "P3_GROUP_0";
 std::string serverIP = "130.208.243.61";
 
 // Simple class for handling connections from clients.
@@ -312,8 +311,8 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         time_t t;
         time(&t);
         clients[clientSocket]->last_keepalive_time = t;
-        if(!tokens[1].compare("0") == 0) {
-            strcpy(buffer, "GET_MSG,P3_GROUP_16");
+        if(tokens[1] > 0) {
+            strcpy(buffer, "GET_MSG,P3_GROUP_0");
             std::string temp = addTokens(buffer);
             strcpy(buffer, temp.c_str());
             send(clientSocket, buffer, strlen(buffer), 0);
@@ -381,16 +380,8 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
             }
         }
     }
+    // EKKI RETT
     else if(tokens[0].compare("GETMSG") == 0) {
-        for(int i = 0; i < msg.size(); i++) {
-            if(msg[i]->group == tokens[1]) {
-                strcpy(buffer, msg[i]->message.c_str());
-                std::string temp = addTokens(buffer);
-                strcpy(buffer, temp.c_str());
-                send(clientSocket, buffer, strlen(buffer), 0);
-            }
-        }
-
         std::string str = addTokens(buffer);
         strcpy(buffer, str.c_str());
         send(clientSocket, buffer, strlen(buffer), 0);
@@ -403,14 +394,13 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
                 message += "," + *i;
             }
         }
-        strcpy(buffer, message.c_str());
         if(clients[clientSocket]->is_group_16) {
-            std::string temp = addTokens(buffer);
+            std::string temp = addTokens(message.c_str());
             strcpy(buffer, temp.c_str());
             send(clientSocket, buffer, strlen(buffer), 0);
         }
         else {
-            Message* currentMsg = new Message(tokens[1], tokens[2], message);
+            Message* currentMsg = new Message(tokens[1], tokens[2], msg);
             msg.push_back(currentMsg);
         }
     }
@@ -481,18 +471,7 @@ int main(int argc, char* argv[]) {
                     for(auto const& c : clients) {
                         Client* cli = c.second;
                         if(!cli->is_group_16) {
-                            int counter = 0;                        
-                            for(int i = 0; i < msg.size(); i++) {
-                                if(client->name == msg[i]->group) {
-                                    counter++;
-                                }
-                            }
-                            std::string temp;
-                            std::ostringstream ss;
-                            ss << counter;
-                            temp = ss.str();
-                            strcpy(buffer, "KEEPALIVE,");
-                            strcat(buffer, temp.c_str());
+                            strcpy(buffer, "KEEPALIVE,0");
                             std::string str = addTokens(buffer);
                             strcpy(buffer, str.c_str());
                             send(cli->sock, buffer, strlen(buffer), 0);
@@ -538,7 +517,7 @@ int main(int argc, char* argv[]) {
                 clients[clientSock]->port = -1;
                 clients[clientSock]->name = "";
 
-                strcpy(buffer, "LISTSERVERS,P3_GROUP_16");
+                strcpy(buffer, "LISTSERVERS,P3_GROUP_0");
                 std::string str = addTokens(buffer);
                 strcpy(buffer, str.c_str());
 
