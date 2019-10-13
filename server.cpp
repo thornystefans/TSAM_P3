@@ -368,9 +368,9 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
             if(msg[i]->group == tokens[1]){
 
                 strcpy(buffer, "SEND_MSG,");
-                strcat(buffer, msg[i]->group.c_str());
-                strcat(buffer, ",");
                 strcat(buffer, msg[i]->from_group.c_str());
+                strcat(buffer, ",");
+                strcat(buffer, msg[i]->group.c_str());
                 strcat(buffer, ",");
                 strcat(buffer, msg[i]->message.c_str());
 
@@ -378,7 +378,7 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
                 strcpy(buffer, str.c_str());
 
                 send(clientSocket, buffer, strlen(buffer), 0);
-                msg.erase(i);
+                msg.erase(msg.begin() + i);
             }
         }
     }
@@ -397,27 +397,51 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         send(clientSocket, buffer, strlen(buffer), 0);
     }
     else if(tokens[0].compare("SEND_MSG") == 0){
-        std::string message;
-        message = tokens[3];
-        if(tokens.size() > 4) {
-            for(auto i = tokens.begin()+2;i != tokens.end();i++) {
-                message += "," + *i;
+        
+        bool msg_sent = false;
+        for(auto const& pair : clients) {
+            if(pair.second->name.compare(tokens[2]) == 0) {
+                send(pair.second->sock, buffer, strlen(buffer), 0);
+                msg_sent = true;
             }
         }
-        strcpy(buffer, message.c_str());
-        if(clients[clientSocket]->is_group_16) {
-            std::string temp = addTokens(buffer);
-            strcpy(buffer, temp.c_str());
-            send(clientSocket, buffer, strlen(buffer), 0);
-        }
-        else {
-            Message* currentMsg = new Message(tokens[1], tokens[2], message);
-            msg.push_back(currentMsg);
+        if(!msg_sent) {
+            std::string message;
+            message = tokens[3];
+            if(tokens.size() > 4) {
+                for(int i = 4; i < tokens.size(); i++) {
+                    message += "," + tokens[i];
+                }
+            }
+            strcpy(buffer, message.c_str());
+            else {
+                Message* currentMsg = new Message(tokens[1], tokens[2], message);
+                msg.push_back(currentMsg);
+            }
         }
     }
     else if(tokens[0].compare("SENDMSG") == 0) {
-        Message* currentMsg = new Message("P3_GROUP_16", tokens[1], tokens[2]);
-        msg.push_back(currentMsg);
+        bool msg_sent = false;
+        for(auto const& pair : clients) {
+            if(pair.second->name.compare(tokens[1]) == 0) {
+                strcpy(buffer, "SEND_MSG,");
+                strcat(buffer, serverID);
+                strcat(buffer, ",");
+                strcat(buffer, tokens[1].c_str());
+                strcat(buffer, ",");
+                strcat(buffer, tokens[2].c_str());
+
+                std::string str = addTokens(buffer);
+                strcpy(buffer, str.c_str());
+
+                send(clientSocket, buffer, strlen(buffer), 0);
+                msg_sent = true;
+            }
+        }
+        if(!msg_sent) {
+            Message* currentMsg = new Message(serverID, tokens[1], tokens[2]);
+            msg.push_back(currentMsg);
+        }
     }
     else if(tokens[0].compare("Group16_hello_from_the_other_side") == 0) {
         clients[clientSocket]->is_group_16 = true;
@@ -499,6 +523,7 @@ int main(int argc, char* argv[]) {
                             time(&t);
                             client->last_keepalive_time = t;
                             std::cout << "KEEPALIVE sent" << std::endl;
+                            std::cout << "Sending: " << buffer << std::endl;
                         }
                     }
                 }
@@ -512,7 +537,6 @@ int main(int argc, char* argv[]) {
         tv.tv_sec = 5;
         tv.tv_usec = 0;
 
-
         // Look at sockets and see which ones have something to be read()
         int n = select(maxfds + 1, &readSockets, NULL, &exceptSockets, &tv);
 
@@ -522,7 +546,7 @@ int main(int argc, char* argv[]) {
         }
         else {
             // First, accept  any new connections to the server on the listening socket
-            if(FD_ISSET(listenSock, &readSockets) && !isFull()) {
+            if(FD_ISSET(listenSock, &readSockets)) {
                 clientSock = accept(listenSock, (struct sockaddr *)&client,
                                     &clientLen);
                 printf("accept***\n");
