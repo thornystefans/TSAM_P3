@@ -311,6 +311,12 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
         time_t t;
         time(&t);
         clients[clientSocket]->last_keepalive_time = t;
+        if(tokens[1] > 0) {
+            strcpy(buffer, "GET_MSG,P3_GROUP_16");
+            std::string temp = addTokens(buffer);
+            strcpy(buffer, temp.c_str());
+            send(clientSocket, buffer, strlen(buffer), 0);
+        }
     }
     else if(tokens[0].compare("LEAVE") == 0 && tokens.size() == 3) {
         // Close the socket, and leave the socket handling
@@ -357,49 +363,52 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
     else if(tokens[0].compare("GET_MSG") == 0){
         //VECTOR[<FROM_GROUP_ID>,<TO_GROUP_ID>,<MESSAGE>]
 
-        if(clients[clientSocket]->is_group_16){
+        for(int i = 0; i < msg.size(); i++){
+            if(msg[i]->group == tokens[1]){
 
-            std::string str = addTokens(buffer);
-            strcpy(buffer, str.c_str());
-            send(clientSocket, buffer, strlen(buffer), 0);
+                strcpy(buffer, "SEND_MSG,");
+                strcat(buffer, msg[i]->group.c_str());
+                strcat(buffer, ",");
+                strcat(buffer, msg[i]->from_group.c_str());
+                strcat(buffer, ",");
+                strcat(buffer, msg[i]->message.c_str());
 
-        }
-        else{
-            for(int i = 0; i < msg.size(); i++){
-                if(msg[i]->group == tokens[1]){
-                    
-                    std::string temp = msg[i]->message;
-                    strcpy(buffer, temp.c_str());
+                std::string str = addTokens(buffer);
+                strcpy(buffer, str.c_str());
 
-                    std::string str = addTokens(buffer);
-                    strcpy(buffer, str.c_str());
-
-                    send(clientSocket, buffer, strlen(buffer), 0);
-
-                }
+                send(clientSocket, buffer, strlen(buffer), 0);
             }
         }
     }
+    // EKKI RETT
+    else if(tokens[0].compare("GETMSG") == 0) {
+        std::string str = addTokens(buffer);
+        strcpy(buffer, str.c_str());
+        send(clientSocket, buffer, strlen(buffer), 0);
+    }
     else if(tokens[0].compare("SEND_MSG") == 0){
-
-        if(clients[clientSocket]->is_group_16){
-
-            std::cout << "send" << std::endl;
-
-            std::string str = addTokens(buffer);
-            strcpy(buffer, str.c_str());
+        std::string message;
+        message = tokens[3];
+        if(tokens.size() > 4) {
+            for(auto i = tokens.begin()+2;i != tokens.end();i++) {
+                message += "," + *i;
+            }
+        }
+        if(clients[clientSocket]->is_group_16) {
+            std::string temp = addTokens(message.c_str());
+            strcpy(buffer, temp.c_str());
             send(clientSocket, buffer, strlen(buffer), 0);
-
         }
-        else if(tokens.size() == 4){
-
-            std::cout << "recv" << std::endl;
-
-            Message* currentMsg = new Message(tokens[1], tokens[2], tokens[3]);
-            msg.push_back(currentMsg); 
-
+        else {
+            Message* currentMsg = new Message(tokens[1], tokens[2], msg);
+            msg.push_back(currentMsg);
         }
-
+    }
+    // EKKI RETT
+    else if(tokens[0].compare("SENDMSG") == 0) {
+        std::string str = addTokens(buffer);
+        strcpy(buffer, str.c_str());
+        send(clientSocket, buffer, strlen(buffer), 0);
     }
     else if(tokens[0].compare("Group16_hello_from_the_other_side") == 0) {
         clients[clientSocket]->is_group_16 = true;
@@ -493,7 +502,7 @@ int main(int argc, char* argv[]) {
         }
         else {
             // First, accept  any new connections to the server on the listening socket
-            if(FD_ISSET(listenSock, &readSockets)) {
+            if(FD_ISSET(listenSock, &readSockets) && !isFull()) {
                 clientSock = accept(listenSock, (struct sockaddr *)&client,
                                     &clientLen);
                 printf("accept***\n");
