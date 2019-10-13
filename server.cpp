@@ -378,6 +378,7 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
                 strcpy(buffer, str.c_str());
 
                 send(clientSocket, buffer, strlen(buffer), 0);
+                msg.erase(i);
             }
         }
     }
@@ -414,11 +415,9 @@ void clientCommand(int clientSocket, fd_set *openSockets, int *maxfds, char *buf
             msg.push_back(currentMsg);
         }
     }
-    // EKKI RETT
     else if(tokens[0].compare("SENDMSG") == 0) {
-        std::string str = addTokens(buffer);
-        strcpy(buffer, str.c_str());
-        send(clientSocket, buffer, strlen(buffer), 0);
+        Message* currentMsg = new Message("P3_GROUP_16", tokens[1], tokens[2]);
+        msg.push_back(currentMsg);
     }
     else if(tokens[0].compare("Group16_hello_from_the_other_side") == 0) {
         clients[clientSocket]->is_group_16 = true;
